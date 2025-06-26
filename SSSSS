@@ -2,16 +2,14 @@ local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
 
-local WEBHOOK_CONFIG = _G.WEBHOOK_CONFIG or {
+local config = _G.WEBHOOK_CONFIG or {
 	url = "",
 	everyone = false,
 	hop = false,
-	hop_timer = 300
+	hop_timer = 10
 }
 
 local function sendWebhookAlert()
-	if not WEBHOOK_CONFIG.url or WEBHOOK_CONFIG.url == "" then return end
-
 	local rifts = workspace:FindFirstChild("Rendered") and workspace.Rendered:FindFirstChild("Rifts")
 	if not rifts then return end
 
@@ -23,9 +21,10 @@ local function sendWebhookAlert()
 	local joinLink = "https://www.roblox.com/games/start?placeId=" .. placeId .. "&gameInstanceId=" .. jobId
 
 	local timeLeft = "Unknown"
-	if egg:FindFirstChild("Display") then
-		local gui = egg.Display:FindFirstChild("SurfaceGui")
-		if gui and gui:FindFirstChild("Timer") and gui.Timer:IsA("TextLabel") then
+	local display = egg:FindFirstChild("Display")
+	if display and display:FindFirstChild("SurfaceGui") then
+		local gui = display.SurfaceGui
+		if gui:FindFirstChild("Timer") and gui.Timer:IsA("TextLabel") then
 			timeLeft = gui.Timer.Text
 		end
 	end
@@ -39,12 +38,11 @@ local function sendWebhookAlert()
 		distanceInfo = playerY > eggY and (diff .. "m below") or (diff .. "m above")
 	end
 
-	local content = WEBHOOK_CONFIG.everyone and "@everyone" or ""
+	local content = config.everyone and "@everyone" or ""
 
 	local embed = {
-		title = "🥚 BRUH EGG FOUND!",
-		description =
-			"**⏱️ Time Left:** " .. timeLeft .. "\n" ..
+		title = "🥚 bruh-egg found!",
+		description = "**⏱️ Time Left:** " .. timeLeft .. "\n" ..
 			"**📏 Distance:** " .. distanceInfo .. "\n" ..
 			"**🌍 Place ID:** `" .. placeId .. "`\n" ..
 			"**🆔 Job ID:** `" .. jobId .. "`\n" ..
@@ -59,68 +57,73 @@ local function sendWebhookAlert()
 
 	pcall(function()
 		local req = (syn and syn.request) or (http and http.request) or (http_request) or (request)
-		if req then
+		if req and config.url and config.url ~= "" then
 			req({
-				Url = WEBHOOK_CONFIG.url,
+				Url = config.url,
 				Method = "POST",
 				Headers = {["Content-Type"] = "application/json"},
 				Body = HttpService:JSONEncode(payload)
 			})
 		end
 	end)
+end
 
-	if WEBHOOK_CONFIG.hop then
-		task.delay(WEBHOOK_CONFIG.hop_timer or 300, function()
-			local PlaceID = game.PlaceId
-			local AllIDs = {}
-			local foundAnything = ""
-			local actualHour = os.date("!*t").hour
+sendWebhookAlert()
 
-			pcall(function()
-				AllIDs = HttpService:JSONDecode(readfile("NotSameServers.json"))
-			end)
+if config.hop then
+	task.delay(config.hop_timer or 10, function()
+		local PlaceID = game.PlaceId
+		local AllIDs = {}
+		local foundAnything = ""
+		local actualHour = os.date("!*t").hour
 
-			if type(AllIDs) ~= "table" then
-				AllIDs = { actualHour }
-				writefile("NotSameServers.json", HttpService:JSONEncode(AllIDs))
+		pcall(function()
+			AllIDs = HttpService:JSONDecode(readfile("NotSameServers.json"))
+		end)
+
+		if type(AllIDs) ~= "table" then
+			AllIDs = { actualHour }
+			writefile("NotSameServers.json", HttpService:JSONEncode(AllIDs))
+		end
+
+		function TPReturner()
+			local Site
+			if foundAnything == "" then
+				Site = HttpService:JSONDecode(game:HttpGet('https://games.roblox.com/v1/games/' .. PlaceID .. '/servers/Public?sortOrder=Asc&limit=100'))
+			else
+				Site = HttpService:JSONDecode(game:HttpGet('https://games.roblox.com/v1/games/' .. PlaceID .. '/servers/Public?sortOrder=Asc&limit=100&cursor=' .. foundAnything))
 			end
 
-			local function TPReturner()
-				local Site
-				if foundAnything == "" then
-					Site = HttpService:JSONDecode(game:HttpGet('https://games.roblox.com/v1/games/' .. PlaceID .. '/servers/Public?sortOrder=Asc&limit=100'))
-				else
-					Site = HttpService:JSONDecode(game:HttpGet('https://games.roblox.com/v1/games/' .. PlaceID .. '/servers/Public?sortOrder=Asc&limit=100&cursor=' .. foundAnything))
-				end
-				if Site.nextPageCursor then foundAnything = Site.nextPageCursor end
+			if Site.nextPageCursor then foundAnything = Site.nextPageCursor end
 
-				for _,v in pairs(Site.data) do
-					local id = tostring(v.id)
-					local isNew = true
-					if v.playing < v.maxPlayers then
-						for _, oldId in ipairs(AllIDs) do
-							if id == tostring(oldId) then
-								isNew = false
-								break
-							end
-						end
-						if isNew then
-							table.insert(AllIDs, id)
-							writefile("NotSameServers.json", HttpService:JSONEncode(AllIDs))
-							TeleportService:TeleportToPlaceInstance(PlaceID, id, Players.LocalPlayer)
-							wait(4)
+			for _, v in pairs(Site.data) do
+				local id = tostring(v.id)
+				local isNew = true
+				if v.playing < v.maxPlayers then
+					for _, oldId in ipairs(AllIDs) do
+						if id == tostring(oldId) then
+							isNew = false
 							break
 						end
 					end
+					if isNew then
+						table.insert(AllIDs, id)
+						writefile("NotSameServers.json", HttpService:JSONEncode(AllIDs))
+						TeleportService:TeleportToPlaceInstance(PlaceID, id, Players.LocalPlayer)
+						wait(4)
+						break
+					end
 				end
 			end
+		end
 
+		function Teleport()
 			while true do
 				pcall(TPReturner)
 				wait(1)
 			end
-		end)
-	end
-end
+		end
 
-sendWebhookAlert()
+		Teleport()
+	end)
+end
